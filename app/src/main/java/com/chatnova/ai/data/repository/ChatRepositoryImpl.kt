@@ -66,7 +66,7 @@ class ChatRepositoryImpl(
     override suspend fun saveMessage(message: ChatMessage) {
         messageDao.insertOrUpdate(MessageEntity.fromDomain(message, gson))
 
-        // Update conversation's updatedAt timestamp
+        // Update conversation's updatedAt timestamp and title
         val conv = conversationDao.getConversationById(message.conversationId)
         if (conv != null) {
             var updatedTitle = conv.title
@@ -109,21 +109,22 @@ class ChatRepositoryImpl(
             return@withContext
         }
 
-        // Fetch exact committed messages from SQLite
+        // Fetch DB messages, fallback to in-memory messages
         val dbEntities = try {
             messageDao.getMessagesDirect(conversationId)
         } catch (e: Exception) {
             emptyList()
         }
-        val allHistory = dbEntities.map { it.toDomain(gson) }
+        val dbHistory = dbEntities.map { it.toDomain(gson) }
+        val rawHistory = if (dbHistory.count { it.role == MessageRole.USER && it.content.isNotBlank() } > 0) dbHistory else messages
 
-        // Filter out empty streaming placeholder messages and error messages
-        val validHistory = allHistory.filter { msg ->
+        // Filter valid history: must not be in ERROR status and must have content or attachments
+        val validHistory = rawHistory.filter { msg ->
             msg.status != MessageStatus.ERROR && (msg.content.isNotBlank() || msg.attachments.isNotEmpty())
         }
 
-        if (validHistory.isEmpty()) {
-            onError("No user message found to send to AI.")
+        if (validHistory.none { it.role == MessageRole.USER }) {
+            onError("No user prompt or message found to send to AI.")
             return@withContext
         }
 
@@ -179,9 +180,8 @@ class ChatRepositoryImpl(
             }
         }
 
-        // Validate that we have at least one message
-        if (requestMessages.isEmpty()) {
-            onError("Message payload is empty.")
+        if (requestMessages.isEmpty() || requestMessages.none { it.role == "user" }) {
+            onError("No user prompt found to send to AI.")
             return@withContext
         }
 

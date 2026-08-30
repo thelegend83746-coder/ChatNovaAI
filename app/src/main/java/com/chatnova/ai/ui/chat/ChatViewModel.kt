@@ -174,16 +174,7 @@ class ChatViewModel(
                 newId
             }
 
-            if (isNewConv) {
-                messagesJob?.cancel()
-                messagesJob = launch {
-                    chatRepository.getMessages(convId).collect { msgList ->
-                        _uiState.update { it.copy(messages = msgList) }
-                    }
-                }
-            }
-
-            // Save User Message
+            // Create User Message
             val userMessage = ChatMessage(
                 id = UUID.randomUUID().toString(),
                 conversationId = convId,
@@ -192,28 +183,42 @@ class ChatViewModel(
                 status = MessageStatus.SUCCESS,
                 attachments = attachments
             )
+
+            // Save to Room DB
             chatRepository.saveMessage(userMessage)
 
-            // Clear composer input
+            // Start observing messages if needed
+            if (isNewConv || messagesJob == null || messagesJob?.isActive == false) {
+                messagesJob?.cancel()
+                messagesJob = launch {
+                    chatRepository.getMessages(convId).collect { msgList ->
+                        _uiState.update { it.copy(messages = msgList) }
+                    }
+                }
+            }
+
+            // Immediately reflect in UI State
             _uiState.update {
                 it.copy(
                     inputText = "",
                     pendingAttachments = emptyList(),
-                    errorMessage = null
+                    errorMessage = null,
+                    messages = (it.messages + userMessage).distinctBy { m -> m.id }
                 )
             }
 
-            // Trigger AI Stream Response
-            triggerAiResponse(convId)
+            // Trigger AI Stream Response with explicit message history
+            triggerAiResponse(convId, _uiState.value.messages)
         }
     }
 
     fun retryLastMessage() {
         val convId = activeConversationId ?: return
-        triggerAiResponse(convId)
+        val validHistory = _uiState.value.messages.filter { it.status != MessageStatus.ERROR }
+        triggerAiResponse(convId, validHistory)
     }
 
-    private fun triggerAiResponse(conversationId: String) {
+    private fun triggerAiResponse(conversationId: String, currentHistory: List<ChatMessage>) {
         stopGeneration()
 
         currentGenerationJob = viewModelScope.launch {
@@ -227,7 +232,13 @@ class ChatViewModel(
             )
             chatRepository.saveMessage(initialAssistantMsg)
 
-            _uiState.update { it.copy(isGenerating = true) }
+            _uiState.update {
+                it.copy(
+                    isGenerating = true,
+                    errorMessage = null,
+                    messages = (it.messages + initialAssistantMsg).distinctBy { m -> m.id }
+                )
+            }
 
             val settings = settingsRepository.chatSettings.first()
             val instructions = settingsRepository.customInstructions.first()
@@ -239,7 +250,7 @@ class ChatViewModel(
 
             chatRepository.streamChatCompletion(
                 conversationId = conversationId,
-                messages = emptyList(),
+                messages = currentHistory,
                 modelId = _uiState.value.selectedModelId,
                 temperature = settings.temperature,
                 topP = settings.topP,
