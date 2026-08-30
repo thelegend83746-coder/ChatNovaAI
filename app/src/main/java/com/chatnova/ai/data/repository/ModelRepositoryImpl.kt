@@ -1,0 +1,149 @@
+package com.chatnova.ai.data.repository
+
+import com.chatnova.ai.data.local.dao.ModelCacheDao
+import com.chatnova.ai.data.local.entity.ModelCacheEntity
+import com.chatnova.ai.data.local.preference.EncryptedPreferenceManager
+import com.chatnova.ai.data.remote.OpenRouterApi
+import com.chatnova.ai.domain.model.AiModel
+import com.chatnova.ai.domain.repository.ModelRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+
+class ModelRepositoryImpl(
+    private val modelCacheDao: ModelCacheDao,
+    private val openRouterApi: OpenRouterApi,
+    private val encryptedPreferenceManager: EncryptedPreferenceManager
+) : ModelRepository {
+
+    override fun getCachedModels(): Flow<List<AiModel>> {
+        return modelCacheDao.getAllModels().map { list ->
+            if (list.isEmpty()) {
+                getDefaultFallbackModels()
+            } else {
+                list.map { it.toDomain() }
+            }
+        }
+    }
+
+    override suspend fun fetchModels(): Result<List<AiModel>> = withContext(Dispatchers.IO) {
+        val apiKey = encryptedPreferenceManager.getApiKey()
+        val authHeader = if (apiKey.isNotBlank()) "Bearer $apiKey" else ""
+
+        try {
+            val response = openRouterApi.getModels(authHeader)
+            if (response.isSuccessful) {
+                val data = response.body()?.data
+                if (data != null) {
+                    val models = data.map { dto ->
+                        val promptPrice = dto.pricing?.prompt?.toDoubleOrNull() ?: 0.0
+                        val completionPrice = dto.pricing?.completion?.toDoubleOrNull() ?: 0.0
+                        val isFree = (promptPrice == 0.0 && completionPrice == 0.0) || dto.id.endsWith(":free")
+                        val hasVision = dto.architecture?.modality?.contains("image") == true ||
+                                dto.id.contains("vision") ||
+                                dto.id.contains("vl") ||
+                                dto.id.contains("flash")
+
+                        AiModel(
+                            id = dto.id,
+                            name = dto.name ?: dto.id.substringAfterLast('/'),
+                            description = dto.description ?: "",
+                            contextLength = dto.contextLength ?: dto.topProvider?.contextLength ?: 128000,
+                            promptPrice = promptPrice * 1_000_000, // Cost per 1M tokens
+                            completionPrice = completionPrice * 1_000_000,
+                            isFree = isFree,
+                            hasVision = hasVision,
+                            provider = dto.id.substringBefore('/', "OpenRouter")
+                        )
+                    }
+
+                    // Save to Room Cache
+                    modelCacheDao.clearModels()
+                    modelCacheDao.insertModels(models.map { ModelCacheEntity.fromDomain(it) })
+                    return@withContext Result.success(models)
+                }
+            }
+            Result.failure(Exception("Failed to fetch models: HTTP ${response.code()} ${response.message()}"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getModelById(modelId: String): AiModel? {
+        val cached = modelCacheDao.getModelById(modelId)
+        if (cached != null) return cached.toDomain()
+        return getDefaultFallbackModels().find { it.id == modelId }
+    }
+
+    private fun getDefaultFallbackModels(): List<AiModel> {
+        return listOf(
+            AiModel(
+                id = "stealth/ox-alpha",
+                name = "Ox Alpha (GLM-5.3-Flash)",
+                description = "Frontier 1M context reasoning & coding model by Zhipu AI",
+                contextLength = 1048576,
+                promptPrice = 0.0,
+                completionPrice = 0.0,
+                isFree = true,
+                hasVision = true,
+                provider = "Zhipu AI"
+            ),
+            AiModel(
+                id = "google/gemini-2.0-flash-exp:free",
+                name = "Gemini 2.0 Flash (Free)",
+                description = "Google's ultra-fast multimodal model with 1M context",
+                contextLength = 1048576,
+                promptPrice = 0.0,
+                completionPrice = 0.0,
+                isFree = true,
+                hasVision = true,
+                provider = "Google"
+            ),
+            AiModel(
+                id = "meta-llama/llama-3.3-70b-instruct:free",
+                name = "Llama 3.3 70B Instruct (Free)",
+                description = "Meta's flagship open-weights reasoning model with 128k context",
+                contextLength = 131072,
+                promptPrice = 0.0,
+                completionPrice = 0.0,
+                isFree = true,
+                hasVision = false,
+                provider = "Meta"
+            ),
+            AiModel(
+                id = "deepseek/deepseek-r1:free",
+                name = "DeepSeek R1 (Free)",
+                description = "State-of-the-art open reasoning model with chain-of-thought",
+                contextLength = 65536,
+                promptPrice = 0.0,
+                completionPrice = 0.0,
+                isFree = true,
+                hasVision = false,
+                provider = "DeepSeek"
+            ),
+            AiModel(
+                id = "qwen/qwen-2.5-coder-32b-instruct",
+                name = "Qwen 2.5 Coder 32B",
+                description = "Top tier specialized coding and programming model",
+                contextLength = 32768,
+                promptPrice = 0.07,
+                completionPrice = 0.14,
+                isFree = false,
+                hasVision = false,
+                provider = "Qwen"
+            ),
+            AiModel(
+                id = "anthropic/claude-3.5-sonnet",
+                name = "Claude 3.5 Sonnet",
+                description = "Anthropic's most intelligent coding and reasoning model",
+                contextLength = 200000,
+                promptPrice = 3.0,
+                completionPrice = 15.0,
+                isFree = false,
+                hasVision = true,
+                provider = "Anthropic"
+            )
+        )
+    }
+}
