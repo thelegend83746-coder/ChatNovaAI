@@ -95,7 +95,8 @@ class ModelsViewModel(
 
     fun setDefaultModel(modelId: String) {
         viewModelScope.launch {
-            settingsRepository.updateDefaultModel(modelId)
+            val currentSettings = settingsRepository.chatSettings.first()
+            settingsRepository.updateChatSettings(currentSettings.copy(defaultModelId = modelId))
             _uiState.update { it.copy(defaultModelId = modelId) }
         }
     }
