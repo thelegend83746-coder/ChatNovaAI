@@ -35,6 +35,9 @@ class ModelsViewModel(
     val uiState: StateFlow<ModelsUiState> = _uiState.asStateFlow()
 
     init {
+        // Automatically fetch latest models from OpenRouter API
+        refreshModels()
+
         // Observe Cached Models
         viewModelScope.launch {
             modelRepository.getCachedModels().collect { list ->
@@ -74,21 +77,26 @@ class ModelsViewModel(
     }
 
     fun refreshModels() {
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             val result = modelRepository.fetchModels()
             result.onSuccess {
                 _uiState.update { it.copy(isLoading = false) }
             }.onFailure { error ->
-                _uiState.update { it.copy(isLoading = false, errorMessage = error.localizedMessage) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "Could not sync live models: ${error.localizedMessage}"
+                    )
+                }
             }
         }
     }
 
     fun setDefaultModel(modelId: String) {
         viewModelScope.launch {
-            val settings = settingsRepository.chatSettings.first()
-            settingsRepository.updateChatSettings(settings.copy(defaultModelId = modelId))
+            settingsRepository.updateDefaultModel(modelId)
+            _uiState.update { it.copy(defaultModelId = modelId) }
         }
     }
 
@@ -97,24 +105,29 @@ class ModelsViewModel(
     }
 
     private fun applyFilterAndSearch(
-        list: List<AiModel>,
+        models: List<AiModel>,
         filter: ModelFilter,
         query: String
     ): List<AiModel> {
-        return list.filter { model ->
-            val matchesFilter = when (filter) {
-                ModelFilter.ALL -> true
-                ModelFilter.FREE -> model.isFree
-                ModelFilter.VISION -> model.hasVision
-                ModelFilter.CODING -> model.id.contains("code", ignoreCase = true) || model.id.contains("coder", ignoreCase = true)
+        return models
+            .filter { model ->
+                when (filter) {
+                    ModelFilter.ALL -> true
+                    ModelFilter.FREE -> model.isFree
+                    ModelFilter.VISION -> model.hasVision
+                    ModelFilter.CODING -> model.id.contains("code") ||
+                            model.id.contains("coder") ||
+                            model.id.contains("qwen") ||
+                            model.id.contains("deepseek")
+                }
             }
-            val matchesQuery = if (query.isBlank()) true else {
-                model.name.contains(query, ignoreCase = true) ||
+            .filter { model ->
+                if (query.isBlank()) true
+                else model.name.contains(query, ignoreCase = true) ||
                         model.id.contains(query, ignoreCase = true) ||
-                        model.provider.contains(query, ignoreCase = true)
+                        model.provider.contains(query, ignoreCase = true) ||
+                        model.description.contains(query, ignoreCase = true)
             }
-            matchesFilter && matchesQuery
-        }
     }
 
     companion object {

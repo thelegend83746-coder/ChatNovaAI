@@ -50,7 +50,7 @@ class ModelRepositoryImpl(
                             name = dto.name ?: dto.id.substringAfterLast('/'),
                             description = dto.description ?: "",
                             contextLength = dto.contextLength ?: dto.topProvider?.contextLength ?: 128000,
-                            promptPrice = promptPrice * 1_000_000, // Cost per 1M tokens
+                            promptPrice = promptPrice * 1_000_000,
                             completionPrice = completionPrice * 1_000_000,
                             isFree = isFree,
                             hasVision = hasVision,
@@ -90,59 +90,103 @@ class ModelRepositoryImpl(
                 provider = "Zhipu AI"
             ),
             AiModel(
-                id = "google/gemini-2.0-flash-exp:free",
-                name = "Gemini 2.0 Flash (Free)",
-                description = "Google's ultra-fast multimodal model with 1M context",
-                contextLength = 1048576,
-                promptPrice = 0.0,
-                completionPrice = 0.0,
-                isFree = true,
-                hasVision = true,
-                provider = "Google"
-            ),
-            AiModel(
-                id = "meta-llama/llama-3.3-70b-instruct:free",
-                name = "Llama 3.3 70B Instruct (Free)",
-                description = "Meta's flagship open-weights reasoning model with 128k context",
+                id = "z-ai/glm-5.2:free",
+                name = "GLM 5.2 (Free)",
+                description = "High efficiency reasoning model by Z-AI with 128k context",
                 contextLength = 131072,
                 promptPrice = 0.0,
                 completionPrice = 0.0,
                 isFree = true,
                 hasVision = false,
-                provider = "Meta"
+                provider = "Z-AI"
             ),
             AiModel(
-                id = "deepseek/deepseek-r1:free",
-                name = "DeepSeek R1 (Free)",
-                description = "State-of-the-art open reasoning model with chain-of-thought",
-                contextLength = 65536,
+                id = "google/gemma-4-31b-it:free",
+                name = "Google Gemma 4 31B (Free)",
+                description = "Google's latest open instruction-tuned language model",
+                contextLength = 131072,
                 promptPrice = 0.0,
                 completionPrice = 0.0,
                 isFree = true,
                 hasVision = false,
+                provider = "Google"
+            ),
+            AiModel(
+                id = "google/gemini-2.5-flash",
+                name = "Google Gemini 2.5 Flash",
+                description = "Ultra-fast multimodal model with 1M context",
+                contextLength = 1048576,
+                promptPrice = 0.075,
+                completionPrice = 0.30,
+                isFree = false,
+                hasVision = true,
+                provider = "Google"
+            ),
+            AiModel(
+                id = "google/gemini-2.5-pro",
+                name = "Google Gemini 2.5 Pro",
+                description = "Google's most capable reasoning and architecture model",
+                contextLength = 1048576,
+                promptPrice = 1.25,
+                completionPrice = 5.0,
+                isFree = false,
+                hasVision = true,
+                provider = "Google"
+            ),
+            AiModel(
+                id = "deepseek/deepseek-v4-flash-vision-exp",
+                name = "DeepSeek V4 Flash Vision",
+                description = "Fast multimodal reasoning model with visual analysis",
+                contextLength = 131072,
+                promptPrice = 0.14,
+                completionPrice = 0.28,
+                isFree = false,
+                hasVision = true,
                 provider = "DeepSeek"
             ),
             AiModel(
-                id = "qwen/qwen-2.5-coder-32b-instruct",
-                name = "Qwen 2.5 Coder 32B",
-                description = "Top tier specialized coding and programming model",
-                contextLength = 32768,
-                promptPrice = 0.07,
-                completionPrice = 0.14,
-                isFree = false,
+                id = "minimax/minimax-m3:free",
+                name = "MiniMax M3 (Free)",
+                description = "Free conversational & instruction-following AI model",
+                contextLength = 1000000,
+                promptPrice = 0.0,
+                completionPrice = 0.0,
+                isFree = true,
                 hasVision = false,
-                provider = "Qwen"
+                provider = "MiniMax"
+            ),
+            AiModel(
+                id = "nvidia/nemotron-3.5-lightning:free",
+                name = "Nvidia Nemotron 3.5 (Free)",
+                description = "High throughput accelerated model by NVIDIA",
+                contextLength = 131072,
+                promptPrice = 0.0,
+                completionPrice = 0.0,
+                isFree = true,
+                hasVision = false,
+                provider = "NVIDIA"
             ),
             AiModel(
                 id = "anthropic/claude-3.5-sonnet",
                 name = "Claude 3.5 Sonnet",
-                description = "Anthropic's most intelligent coding and reasoning model",
+                description = "Anthropic's flagship coding & reasoning model",
                 contextLength = 200000,
                 promptPrice = 3.0,
                 completionPrice = 15.0,
                 isFree = false,
                 hasVision = true,
                 provider = "Anthropic"
+            ),
+            AiModel(
+                id = "openai/gpt-4o",
+                name = "GPT-4o",
+                description = "OpenAI's flagship multimodal intelligence model",
+                contextLength = 128000,
+                promptPrice = 2.50,
+                completionPrice = 10.0,
+                isFree = false,
+                hasVision = true,
+                provider = "OpenAI"
             )
         )
     }
