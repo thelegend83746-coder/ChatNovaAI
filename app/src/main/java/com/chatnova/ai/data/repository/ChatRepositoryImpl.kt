@@ -15,6 +15,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -110,6 +111,14 @@ class ChatRepositoryImpl(
             return@withContext
         }
 
+        // Fetch actual persisted messages from Room Database to ensure complete history
+        val dbMessages = try {
+            messageDao.getMessagesForConversation(conversationId).first().map { it.toDomain(gson) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val sourceMessages = if (dbMessages.isNotEmpty()) dbMessages else messages
+
         val requestMessages = mutableListOf<MessageRequestDto>()
 
         // 1. Add System prompt if present
@@ -122,8 +131,10 @@ class ChatRepositoryImpl(
             )
         }
 
-        // 2. Format conversation messages (support text, images, and file attachments)
-        messages.filter { it.status != MessageStatus.ERROR }.forEach { msg ->
+        // 2. Format conversation messages (filter out error messages and empty streaming placeholder messages)
+        sourceMessages.filter { msg ->
+            msg.status != MessageStatus.ERROR && (msg.content.isNotBlank() || msg.attachments.isNotEmpty())
+        }.forEach { msg ->
             val roleStr = when (msg.role) {
                 MessageRole.USER -> "user"
                 MessageRole.ASSISTANT -> "assistant"
@@ -157,9 +168,15 @@ class ChatRepositoryImpl(
                     textContent += "\n\n[Attached File: ${att.name}]\n${att.extractedText}"
                 }
                 requestMessages.add(MessageRequestDto(role = roleStr, content = textContent))
-            } else {
+            } else if (msg.content.isNotBlank()) {
                 requestMessages.add(MessageRequestDto(role = roleStr, content = msg.content))
             }
+        }
+
+        // Validate that we have at least one user message
+        if (requestMessages.isEmpty() || requestMessages.none { it.role == "user" }) {
+            onError("No user prompt or message found to send to AI.")
+            return@withContext
         }
 
         val request = ChatCompletionRequestDto(
@@ -215,6 +232,7 @@ class ChatRepositoryImpl(
         }
 
         return when (code) {
+            400 -> "Bad Request (HTTP 400): ${errorMsg.ifEmpty { "Invalid request structure" }}"
             401 -> "Authentication failed. Invalid OpenRouter API Key. (${errorMsg.ifEmpty { "Check Settings" }})"
             402 -> "Insufficient credits. Your OpenRouter balance is insufficient for this model."
             403 -> "Access forbidden: ${errorMsg.ifEmpty { "You do not have permission to access this model." }}"

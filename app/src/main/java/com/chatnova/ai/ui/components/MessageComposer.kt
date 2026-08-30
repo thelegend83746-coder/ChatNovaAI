@@ -42,13 +42,16 @@ fun MessageComposer(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp,
-        modifier = modifier.fillMaxWidth()
+        tonalElevation = 3.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             // Attachment Preview Tray
             AnimatedVisibility(visible = attachments.isNotEmpty()) {

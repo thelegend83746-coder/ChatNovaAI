@@ -185,12 +185,13 @@ class ChatViewModel(
             )
             chatRepository.saveMessage(userMessage)
 
-            // Clear composer input
+            // Clear composer input and immediately add user message to StateFlow
             _uiState.update {
                 it.copy(
                     inputText = "",
                     pendingAttachments = emptyList(),
-                    errorMessage = null
+                    errorMessage = null,
+                    messages = it.messages + userMessage
                 )
             }
 
