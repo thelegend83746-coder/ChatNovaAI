@@ -66,10 +66,12 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // Auto scroll on new messages or generation
+    // Auto scroll on new messages or generation safely
     LaunchedEffect(uiState.messages.size, uiState.messages.lastOrNull()?.content?.length) {
         if (uiState.messages.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.messages.size - 1)
+            try {
+                listState.animateScrollToItem(uiState.messages.size - 1)
+            } catch (ignored: Exception) {}
         }
     }
 
@@ -316,7 +318,7 @@ fun ChatScreen(
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
                     items(
-                        items = uiState.messages,
+                        items = uiState.messages.distinctBy { it.id },
                         key = { it.id }
                     ) { message ->
                         MessageItemView(

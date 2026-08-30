@@ -40,6 +40,7 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var currentGenerationJob: Job? = null
+    private var messagesJob: Job? = null
     private var activeConversationId: String? = null
 
     init {
@@ -67,6 +68,8 @@ class ChatViewModel(
 
     fun loadConversation(conversationId: String?) {
         activeConversationId = conversationId
+        messagesJob?.cancel()
+
         if (conversationId == null) {
             _uiState.update {
                 it.copy(
@@ -90,9 +93,12 @@ class ChatViewModel(
                         selectedModelId = conv.modelId
                     )
                 }
-                chatRepository.getMessages(conversationId).collect { msgList ->
-                    _uiState.update { it.copy(messages = msgList) }
-                }
+            }
+        }
+
+        messagesJob = viewModelScope.launch {
+            chatRepository.getMessages(conversationId).collect { msgList ->
+                _uiState.update { it.copy(messages = msgList) }
             }
         }
     }
@@ -131,6 +137,7 @@ class ChatViewModel(
 
     fun startNewChat() {
         stopGeneration()
+        messagesJob?.cancel()
         activeConversationId = null
         _uiState.update {
             it.copy(
@@ -153,7 +160,7 @@ class ChatViewModel(
         if (currentState.isGenerating) return
 
         viewModelScope.launch {
-            // Ensure Conversation exists
+            val isNewConv = (activeConversationId == null)
             val convId = activeConversationId ?: run {
                 val newId = UUID.randomUUID().toString()
                 activeConversationId = newId
@@ -164,14 +171,16 @@ class ChatViewModel(
                 )
                 chatRepository.createConversation(newConv)
                 _uiState.update { it.copy(conversationId = newId) }
+                newId
+            }
 
-                // Start observing messages for new conversation
-                launch {
-                    chatRepository.getMessages(newId).collect { msgList ->
+            if (isNewConv) {
+                messagesJob?.cancel()
+                messagesJob = launch {
+                    chatRepository.getMessages(convId).collect { msgList ->
                         _uiState.update { it.copy(messages = msgList) }
                     }
                 }
-                newId
             }
 
             // Save User Message
@@ -185,13 +194,12 @@ class ChatViewModel(
             )
             chatRepository.saveMessage(userMessage)
 
-            // Clear composer input and immediately add user message to StateFlow
+            // Clear composer input
             _uiState.update {
                 it.copy(
                     inputText = "",
                     pendingAttachments = emptyList(),
-                    errorMessage = null,
-                    messages = it.messages + userMessage
+                    errorMessage = null
                 )
             }
 
@@ -231,7 +239,7 @@ class ChatViewModel(
 
             chatRepository.streamChatCompletion(
                 conversationId = conversationId,
-                messages = _uiState.value.messages,
+                messages = emptyList(),
                 modelId = _uiState.value.selectedModelId,
                 temperature = settings.temperature,
                 topP = settings.topP,

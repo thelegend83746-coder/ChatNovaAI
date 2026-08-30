@@ -7,7 +7,6 @@ import com.chatnova.ai.data.local.entity.MessageEntity
 import com.chatnova.ai.data.local.preference.EncryptedPreferenceManager
 import com.chatnova.ai.data.remote.OpenRouterApi
 import com.chatnova.ai.data.remote.dto.*
-import com.chatnova.ai.data.remote.error.ApiException
 import com.chatnova.ai.data.remote.sse.SseStreamParser
 import com.chatnova.ai.domain.model.*
 import com.chatnova.ai.domain.repository.ChatRepository
@@ -15,7 +14,6 @@ import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -111,13 +109,23 @@ class ChatRepositoryImpl(
             return@withContext
         }
 
-        // Fetch actual persisted messages from Room Database to ensure complete history
-        val dbMessages = try {
-            messageDao.getMessagesForConversation(conversationId).first().map { it.toDomain(gson) }
+        // Fetch exact committed messages from SQLite
+        val dbEntities = try {
+            messageDao.getMessagesDirect(conversationId)
         } catch (e: Exception) {
             emptyList()
         }
-        val sourceMessages = if (dbMessages.isNotEmpty()) dbMessages else messages
+        val allHistory = dbEntities.map { it.toDomain(gson) }
+
+        // Filter out empty streaming placeholder messages and error messages
+        val validHistory = allHistory.filter { msg ->
+            msg.status != MessageStatus.ERROR && (msg.content.isNotBlank() || msg.attachments.isNotEmpty())
+        }
+
+        if (validHistory.isEmpty()) {
+            onError("No user message found to send to AI.")
+            return@withContext
+        }
 
         val requestMessages = mutableListOf<MessageRequestDto>()
 
@@ -131,10 +139,8 @@ class ChatRepositoryImpl(
             )
         }
 
-        // 2. Format conversation messages (filter out error messages and empty streaming placeholder messages)
-        sourceMessages.filter { msg ->
-            msg.status != MessageStatus.ERROR && (msg.content.isNotBlank() || msg.attachments.isNotEmpty())
-        }.forEach { msg ->
+        // 2. Format conversation messages
+        validHistory.forEach { msg ->
             val roleStr = when (msg.role) {
                 MessageRole.USER -> "user"
                 MessageRole.ASSISTANT -> "assistant"
@@ -173,9 +179,9 @@ class ChatRepositoryImpl(
             }
         }
 
-        // Validate that we have at least one user message
-        if (requestMessages.isEmpty() || requestMessages.none { it.role == "user" }) {
-            onError("No user prompt or message found to send to AI.")
+        // Validate that we have at least one message
+        if (requestMessages.isEmpty()) {
+            onError("Message payload is empty.")
             return@withContext
         }
 
